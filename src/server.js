@@ -27,21 +27,17 @@ function createServer() {
   server.registerResource(
     "public-data-widget",
     WIDGET_URI,
-    {
-      title: "Public Data Explorer",
-      description: "Interactive embedded widget for public data returned by the MCP tool.",
-      mimeType: "text/html+skybridge",
-      _meta: {
-        "openai/widgetDescription": "Renders live public data in a searchable, sortable interactive widget.",
-        "openai/widgetPrefersBorder": true
-      }
-    },
-    async (uri) => ({
+    {},
+    async () => ({
       contents: [
         {
-          uri: uri.href,
+          uri: WIDGET_URI,
           mimeType: "text/html+skybridge",
-          text: await loadWidgetHtml()
+          text: await loadWidgetHtml(),
+          _meta: {
+            "openai/widgetDescription": "Renders public data records in a searchable, sortable interactive widget.",
+            "openai/widgetPrefersBorder": true
+          }
         }
       ]
     })
