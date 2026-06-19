@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #172026;
+        --muted: #60707c;
+        --line: #d9e1e7;
+        --panel: #ffffff;
+        --accent: #0f766e;
+        --accent-soft: #e2f3ef;
+        --warn: #b45309;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #f6f8f9;
+        color: var(--ink);
+      }
+
+      .app {
+        min-height: 100vh;
+        padding: 16px;
+      }
+
+      .topbar {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.2;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel);
+        padding: 5px 9px;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+      }
+
+      input,
+      select,
+      button {
+        min-height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--ink);
+        font: inherit;
+      }
+
+      input,
+      select {
+        padding: 0 10px;
+      }
+
+      button {
+        padding: 0 12px;
+        cursor: pointer;
+      }
+
+      button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: white;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .card h2 {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.25;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .value {
+        justify-self: start;
+        border-radius: 6px;
+        background: var(--accent-soft);
+        color: #0f514c;
+        font-weight: 650;
+        padding: 5px 7px;
+        font-size: 12px;
+      }
+
+      .empty {
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        color: var(--muted);
+        background: var(--panel);
+      }
+
+      .details {
+        display: none;
+        border-top: 1px solid var(--line);
+        padding-top: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .card[data-open="true"] .details {
+        display: block;
+      }
+
+      @media (max-width: 520px) {
+        .app {
+          padding: 12px;
+        }
+
+        .controls {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <section class="topbar">
+        <h1 id="title">Public Data Explorer</h1>
+        <div class="meta" id="meta"></div>
+        <div class="controls">
+          <input id="filter" type="search" placeholder="Filter results" />
+          <select id="sort">
+            <option value="title">Sort by title</option>
+            <option value="category">Sort by category</option>
+            <option value="value">Sort by value</option>
+          </select>
+        </div>
+      </section>
+      <section id="results" class="grid"></section>
+    </main>
+
+    <script>
+      const fallbackData = {
+        subject: "Public Data Explorer",
+        sourceName: "Waiting for MCP data",
+        sourceUrl: "",
+        fetchedAt: new Date().toISOString(),
+        count: 0,
+        items: []
+      };
+
+      let data = window.openai?.toolOutput || window.openai?.structuredContent || fallbackData;
+      let filterValue = "";
+      let sortValue = "title";
+
+      const title = document.querySelector("#title");
+      const meta = document.querySelector("#meta");
+      const results = document.querySelector("#results");
+      const filter = document.querySelector("#filter");
+      const sort = document.querySelector("#sort");
+
+      function normalizeText(value) {
+        return String(value || "").toLowerCase();
+      }
+
+      function render() {
+        const items = [...(data.items || [])]
+          .filter((item) => {
+            if (!filterValue) return true;
+            return normalizeText([item.title, item.subtitle, item.category, item.value].join(" ")).includes(filterValue);
+          })
+          .sort((a, b) => normalizeText(a[sortValue]).localeCompare(normalizeText(b[sortValue])));
+
+        title.textContent = data.subject || "Public Data Explorer";
+        meta.innerHTML = "";
+        [
+          `${items.length} shown`,
+          data.sourceName || "Public source",
+          data.fetchedAt ? `Fetched ${new Date(data.fetchedAt).toLocaleString()}` : ""
+        ]
+          .filter(Boolean)
+          .forEach((text) => {
+            const span = document.createElement("span");
+            span.className = "pill";
+            span.textContent = text;
+            meta.append(span);
+          });
+
+        results.innerHTML = "";
+
+        if (!items.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No matching records.";
+          results.append(empty);
+          return;
+        }
+
+        items.forEach((item) => {
+          const card = document.createElement("article");
+          card.className = "card";
+          card.tabIndex = 0;
+          card.dataset.open = "false";
+
+          const h2 = document.createElement("h2");
+          h2.textContent = item.title || "Untitled";
+
+          const subtitle = document.createElement("p");
+          subtitle.textContent = item.subtitle || item.category || "";
+
+          const value = document.createElement("span");
+          value.className = "value";
+          value.textContent = item.value || item.category || "Record";
+
+          const details = document.createElement("div");
+          details.className = "details";
+          details.textContent = [
+            item.category ? `Category: ${item.category}` : "",
+            item.updatedAt ? `Updated: ${new Date(item.updatedAt).toLocaleString()}` : "",
+            item.url ? `Source: ${item.url}` : ""
+          ]
+            .filter(Boolean)
+            .join(" | ");
+
+          card.append(h2, subtitle, value, details);
+          card.addEventListener("click", () => {
+            card.dataset.open = card.dataset.open === "true" ? "false" : "true";
+            window.openai?.setWidgetState?.({ selectedId: item.id });
+          });
+          card.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              card.click();
+            }
+          });
+          results.append(card);
+        });
+      }
+
+      filter.addEventListener("input", (event) => {
+        filterValue = normalizeText(event.target.value);
+        render();
+      });
+
+      sort.addEventListener("change", (event) => {
+        sortValue = event.target.value;
+        render();
+      });
+
+      window.addEventListener("message", (event) => {
+        const nextData = event.data?.toolOutput || event.data?.structuredContent;
+        if (nextData?.items) {
+          data = nextData;
+          render();
+        }
+      });
+
+      render();
+    </script>
+  </body>
+</html>
