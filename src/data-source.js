@@ -3,6 +3,16 @@ import https from "node:https";
 const USGS_ENDPOINT = "https://earthquake.usgs.gov/fdsnws/event/1/query";
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const GLOBAL_TERMS = new Set(["world", "the world", "global", "globally", "worldwide", "earth"]);
+const TOPIC_ONLY_TERMS = new Set([
+  "earthquake",
+  "earthquakes",
+  "quake",
+  "quakes",
+  "seismic",
+  "seismic activity",
+  "earthquake activity",
+  "recent earthquakes"
+]);
 
 async function fetchJson(url) {
   try {
@@ -88,13 +98,19 @@ function parseQueryIntent(query) {
   const inMatch = normalizedQuery.match(/\bin\s+([^,.!?]+)(?:[,.!?]|$)/i);
   const possibleLocation = cleanLocation(inMatch?.[1] || "");
   const locationFromIn = possibleLocation && !GLOBAL_TERMS.has(possibleLocation.toLowerCase()) ? possibleLocation : "";
-  const isBroadGlobal = !normalizedQuery || GLOBAL_TERMS.has(normalizedQuery.toLowerCase()) || /\b(world|global|worldwide)\b/.test(lowerQuery);
-  const locationQuery = locationFromIn || (!isBroadGlobal && !asksForYear && magnitude === undefined ? normalizedQuery : "");
+  const isTopicOnly = TOPIC_ONLY_TERMS.has(lowerQuery) || /^(show|find|get|list)?\s*(recent\s*)?(earthquakes?|quakes?|seismic activity)\s*$/i.test(normalizedQuery);
+  const isBroadGlobal =
+    !normalizedQuery ||
+    GLOBAL_TERMS.has(lowerQuery) ||
+    TOPIC_ONLY_TERMS.has(lowerQuery) ||
+    /\b(world|global|worldwide)\b/.test(lowerQuery);
+  const shouldTreatAsBroad = isBroadGlobal || isTopicOnly;
+  const locationQuery = locationFromIn || (!shouldTreatAsBroad && !asksForYear && magnitude === undefined ? normalizedQuery : "");
 
   return {
     normalizedQuery,
     locationQuery,
-    minimumMagnitude: magnitude ?? (asksForYear || isBroadGlobal ? 4.5 : 2.5),
+    minimumMagnitude: magnitude ?? (asksForYear || shouldTreatAsBroad ? 4.5 : 2.5),
     startDate: asksForYear ? toIsoDate(currentYearStart()) : toIsoDate(new Date(Date.now() - ONE_WEEK_MS)),
     subject: locationQuery
       ? `USGS Earthquakes near ${locationQuery}`
