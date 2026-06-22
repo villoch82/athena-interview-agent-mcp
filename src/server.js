@@ -14,6 +14,26 @@ const WIDGET_URI = "ui://widget/public-data.html";
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
+const itemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  category: z.string().optional(),
+  value: z.string().optional(),
+  url: z.string().optional(),
+  updatedAt: z.string().optional()
+});
+
+const outputSchema = {
+  subject: z.string(),
+  sourceName: z.string(),
+  sourceUrl: z.string(),
+  query: z.string(),
+  fetchedAt: z.string(),
+  count: z.number(),
+  items: z.array(itemSchema)
+};
+
 async function loadWidgetHtml() {
   return readFile(join(__dirname, "widget.html"), "utf8");
 }
@@ -52,8 +72,15 @@ function createServer() {
         query: z.string().optional().describe("Search term or filter supplied by the user."),
         limit: z.number().int().min(1).max(50).optional().describe("Maximum number of records to return.")
       },
+      outputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true
+      },
       _meta: {
         "openai/outputTemplate": WIDGET_URI,
+        "openai/widgetAccessible": true,
         "openai/toolInvocation/invoking": "Retrieving public data...",
         "openai/toolInvocation/invoked": "Public data loaded"
       }
@@ -63,6 +90,9 @@ function createServer() {
 
       return {
         structuredContent: data,
+        _meta: {
+          "openai/outputTemplate": WIDGET_URI
+        },
         content: [
           {
             type: "text",
