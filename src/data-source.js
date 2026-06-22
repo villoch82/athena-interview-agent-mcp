@@ -2,6 +2,7 @@ import https from "node:https";
 
 const USGS_ENDPOINT = "https://earthquake.usgs.gov/fdsnws/event/1/query";
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const GLOBAL_TERMS = new Set(["world", "the world", "global", "globally", "worldwide", "earth"]);
 
 async function fetchJson(url) {
   try {
@@ -61,29 +62,65 @@ function classifyDepth(kilometers) {
   return "Deep";
 }
 
+function currentYearStart() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+}
+
+function extractMagnitude(queryText) {
+  const matches = queryText.match(/\b\d+(?:\.\d+)?\b/g) || [];
+  const magnitude = matches.map(Number).find((value) => value >= 0 && value <= 10);
+  return Number.isFinite(magnitude) ? magnitude : undefined;
+}
+
+function cleanLocation(value) {
+  return value
+    .replace(/\b(render|using|with|and|show|the|widget|results?)\b.*$/i, "")
+    .replace(/[^\p{L}\p{N}\s'-]/gu, "")
+    .trim();
+}
+
+function parseQueryIntent(query) {
+  const normalizedQuery = query.trim();
+  const lowerQuery = normalizedQuery.toLowerCase();
+  const asksForYear = /\b(this year|current year|year to date|ytd|2026)\b/.test(lowerQuery);
+  const magnitude = extractMagnitude(lowerQuery);
+  const inMatch = normalizedQuery.match(/\bin\s+([^,.!?]+)(?:[,.!?]|$)/i);
+  const possibleLocation = cleanLocation(inMatch?.[1] || "");
+  const locationFromIn = possibleLocation && !GLOBAL_TERMS.has(possibleLocation.toLowerCase()) ? possibleLocation : "";
+  const isBroadGlobal = !normalizedQuery || GLOBAL_TERMS.has(normalizedQuery.toLowerCase()) || /\b(world|global|worldwide)\b/.test(lowerQuery);
+  const locationQuery = locationFromIn || (!isBroadGlobal && !asksForYear && magnitude === undefined ? normalizedQuery : "");
+
+  return {
+    normalizedQuery,
+    locationQuery,
+    minimumMagnitude: magnitude ?? (asksForYear || isBroadGlobal ? 4.5 : 2.5),
+    startDate: asksForYear ? toIsoDate(currentYearStart()) : toIsoDate(new Date(Date.now() - ONE_WEEK_MS)),
+    subject: locationQuery
+      ? `USGS Earthquakes near ${locationQuery}`
+      : asksForYear
+        ? "Global USGS Earthquakes This Year"
+        : "Recent USGS Earthquakes"
+  };
+}
+
 export async function searchPublicData({ query = "", limit = 12 } = {}) {
   const safeLimit = Math.min(Math.max(Number(limit) || 12, 1), 50);
-  const normalizedQuery = query.trim();
-  const minimumMagnitude = Number.parseFloat(normalizedQuery);
-  const startDate = toIsoDate(new Date(Date.now() - ONE_WEEK_MS));
+  const intent = parseQueryIntent(query);
+  const queryLimit = intent.locationQuery ? Math.min(Math.max(safeLimit * 20, 100), 200) : Math.max(safeLimit * 3, safeLimit);
   const params = new URLSearchParams({
     format: "geojson",
-    starttime: startDate,
+    starttime: intent.startDate,
     orderby: "time",
-    limit: String(Math.max(safeLimit * 3, safeLimit))
+    limit: String(queryLimit),
+    minmagnitude: String(intent.minimumMagnitude)
   });
-
-  if (Number.isFinite(minimumMagnitude)) {
-    params.set("minmagnitude", String(minimumMagnitude));
-  } else {
-    params.set("minmagnitude", "2.5");
-  }
 
   const sourceUrl = `${USGS_ENDPOINT}?${params.toString()}`;
   const payload = await fetchJson(sourceUrl);
-  const queryText = normalizedQuery.toLowerCase();
+  const queryText = intent.locationQuery.toLowerCase();
   const filteredFeatures = (payload.features || []).filter((feature) => {
-    if (!queryText || Number.isFinite(minimumMagnitude)) return true;
+    if (!queryText) return true;
     return String(feature.properties?.place || "").toLowerCase().includes(queryText);
   });
 
@@ -106,7 +143,7 @@ export async function searchPublicData({ query = "", limit = 12 } = {}) {
   });
 
   return {
-    subject: "Recent USGS Earthquakes",
+    subject: intent.subject,
     sourceName: "USGS Earthquake Catalog",
     sourceUrl,
     query,
