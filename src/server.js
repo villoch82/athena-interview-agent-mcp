@@ -66,8 +66,8 @@ function createServer() {
   server.registerTool(
     "search_public_data",
     {
-      title: "Search public data",
-      description: "Retrieve real public data for the assigned challenge topic and render it in the embedded widget.",
+      title: "Search recent earthquakes",
+      description: "Retrieve recent real earthquake records from the public USGS Earthquake Catalog and render them in the embedded widget. Use this for earthquake, seismic activity, magnitude, and location questions.",
       inputSchema: {
         query: z.string().optional().describe("Search term or filter supplied by the user."),
         limit: z.number().int().min(1).max(50).optional().describe("Maximum number of records to return.")
@@ -81,8 +81,8 @@ function createServer() {
       _meta: {
         "openai/outputTemplate": WIDGET_URI,
         "openai/widgetAccessible": true,
-        "openai/toolInvocation/invoking": "Retrieving public data...",
-        "openai/toolInvocation/invoked": "Public data loaded"
+        "openai/toolInvocation/invoking": "Retrieving USGS earthquakes...",
+        "openai/toolInvocation/invoked": "USGS earthquakes loaded"
       }
     },
     async ({ query = "", limit = 12 }) => {
@@ -96,7 +96,7 @@ function createServer() {
         content: [
           {
             type: "text",
-            text: `Retrieved ${data.count} ${data.count === 1 ? "record" : "records"} from ${data.sourceName}.`
+            text: `Loaded ${data.count} ${data.count === 1 ? "earthquake" : "earthquakes"} from ${data.sourceName}. Use the widget to explore the results.`
           }
         ]
       };
