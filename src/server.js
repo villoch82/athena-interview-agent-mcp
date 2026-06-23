@@ -79,11 +79,11 @@ function createServer() {
     "search_public_data",
     {
       title: "Compare crypto markets",
-      description: "Retrieve real cryptocurrency market data from the public CoinGecko Markets API and render an interactive widget comparing price movement, trading volume, market cap, and timeframe.",
+      description: "Retrieve real cryptocurrency market data from the public CoinLore API and render an interactive widget comparing price movement, trading volume, market cap, and timeframe.",
       inputSchema: {
         query: z.string().optional().describe("Natural language request, asset symbols, or comparison terms."),
         assets: z.string().optional().describe("Comma-separated crypto symbols or names, such as BTC, ETH, SOL."),
-        timeframe: z.enum(["1h", "24h", "7d", "30d"]).optional().describe("Timeframe for price movement comparison."),
+        timeframe: z.enum(["1h", "24h", "7d"]).optional().describe("Timeframe for price movement comparison."),
         limit: z.number().int().min(1).max(50).optional().describe("Maximum number of records to return.")
       },
       outputSchema,

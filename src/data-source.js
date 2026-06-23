@@ -1,34 +1,33 @@
 import https from "node:https";
 
-const COINGECKO_MARKETS_ENDPOINT = "https://api.coingecko.com/api/v3/coins/markets";
-const DEFAULT_ASSET_IDS = ["bitcoin", "ethereum", "solana", "ripple", "binancecoin", "dogecoin", "cardano", "tron"];
+const COINLORE_TICKERS_ENDPOINT = "https://api.coinlore.net/api/tickers/";
+const DEFAULT_SYMBOLS = ["BTC", "ETH", "SOL", "XRP", "BNB", "DOGE", "ADA", "TRX"];
 const ASSET_ALIASES = new Map([
-  ["btc", "bitcoin"],
-  ["bitcoin", "bitcoin"],
-  ["eth", "ethereum"],
-  ["ethereum", "ethereum"],
-  ["sol", "solana"],
-  ["solana", "solana"],
-  ["xrp", "ripple"],
-  ["ripple", "ripple"],
-  ["bnb", "binancecoin"],
-  ["binance", "binancecoin"],
-  ["doge", "dogecoin"],
-  ["dogecoin", "dogecoin"],
-  ["ada", "cardano"],
-  ["cardano", "cardano"],
-  ["trx", "tron"],
-  ["tron", "tron"],
-  ["avax", "avalanche-2"],
-  ["avalanche", "avalanche-2"],
-  ["link", "chainlink"],
-  ["chainlink", "chainlink"],
-  ["dot", "polkadot"],
-  ["polkadot", "polkadot"],
-  ["matic", "polygon"],
-  ["polygon", "polygon"]
+  ["btc", "BTC"],
+  ["bitcoin", "BTC"],
+  ["eth", "ETH"],
+  ["ethereum", "ETH"],
+  ["sol", "SOL"],
+  ["solana", "SOL"],
+  ["xrp", "XRP"],
+  ["ripple", "XRP"],
+  ["bnb", "BNB"],
+  ["binance", "BNB"],
+  ["doge", "DOGE"],
+  ["dogecoin", "DOGE"],
+  ["ada", "ADA"],
+  ["cardano", "ADA"],
+  ["trx", "TRX"],
+  ["tron", "TRX"],
+  ["avax", "AVAX"],
+  ["avalanche", "AVAX"],
+  ["link", "LINK"],
+  ["chainlink", "LINK"],
+  ["dot", "DOT"],
+  ["polkadot", "DOT"],
+  ["matic", "MATIC"],
+  ["polygon", "MATIC"]
 ]);
-const TIMEFRAMES = new Set(["1h", "24h", "7d", "30d"]);
 
 async function fetchJson(url) {
   try {
@@ -40,7 +39,7 @@ async function fetchJson(url) {
     });
 
     if (!response.ok) {
-      throw new Error(`CoinGecko request failed with ${response.status}`);
+      throw new Error(`CoinLore request failed with ${response.status}`);
     }
 
     return response.json();
@@ -56,7 +55,7 @@ async function fetchJson(url) {
           });
           response.on("end", () => {
             if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-              reject(new Error(`CoinGecko request failed with ${response.statusCode || "unknown status"}`));
+              reject(new Error(`CoinLore request failed with ${response.statusCode || "unknown status"}`));
               return;
             }
 
@@ -70,6 +69,11 @@ async function fetchJson(url) {
         .on("error", () => reject(error));
     });
   }
+}
+
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 function compactCurrency(value) {
@@ -100,72 +104,72 @@ function normalizeTimeframe(timeframe = "", query = "") {
   const raw = `${timeframe} ${query}`.toLowerCase();
   if (/\b(1h|1 hour|hour|hourly)\b/.test(raw)) return "1h";
   if (/\b(7d|7 day|week|weekly)\b/.test(raw)) return "7d";
-  if (/\b(30d|30 day|month|monthly)\b/.test(raw)) return "30d";
   return "24h";
 }
 
-function extractAssetIds(query = "", assets = "") {
+function extractSymbols(query = "", assets = "") {
   const raw = `${assets} ${query}`.toLowerCase();
-  const ids = [];
+  const symbols = [];
 
-  for (const [alias, id] of ASSET_ALIASES.entries()) {
-    if (new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(raw) && !ids.includes(id)) {
-      ids.push(id);
+  for (const [alias, symbol] of ASSET_ALIASES.entries()) {
+    if (new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(raw) && !symbols.includes(symbol)) {
+      symbols.push(symbol);
     }
   }
 
-  return ids.length ? ids.slice(0, 12) : DEFAULT_ASSET_IDS;
+  return symbols.length ? symbols.slice(0, 12) : DEFAULT_SYMBOLS;
 }
 
 function changeForTimeframe(record, timeframe) {
-  const key = `price_change_percentage_${timeframe}_in_currency`;
-  return typeof record[key] === "number" ? record[key] : record.price_change_percentage_24h;
+  if (timeframe === "1h") return toNumber(record.percent_change_1h);
+  if (timeframe === "7d") return toNumber(record.percent_change_7d);
+  return toNumber(record.percent_change_24h);
 }
 
 export async function searchPublicData({ query = "", assets = "", timeframe = "24h", limit = 8 } = {}) {
   const safeLimit = Math.min(Math.max(Number(limit) || 8, 1), 50);
   const selectedTimeframe = normalizeTimeframe(timeframe, query);
-  const ids = extractAssetIds(query, assets);
+  const selectedSymbols = extractSymbols(query, assets);
   const params = new URLSearchParams({
-    vs_currency: "usd",
-    ids: ids.join(","),
-    order: "market_cap_desc",
-    per_page: String(Math.max(safeLimit, ids.length)),
-    page: "1",
-    sparkline: "false",
-    price_change_percentage: "1h,24h,7d,30d"
+    start: "0",
+    limit: "100"
   });
-  const sourceUrl = `${COINGECKO_MARKETS_ENDPOINT}?${params.toString()}`;
-  const records = await fetchJson(sourceUrl);
+  const sourceUrl = `${COINLORE_TICKERS_ENDPOINT}?${params.toString()}`;
+  const payload = await fetchJson(sourceUrl);
+  const records = (payload.data || []).filter((record) => selectedSymbols.includes(String(record.symbol || "").toUpperCase()));
 
   const items = records.slice(0, safeLimit).map((record) => {
+    const price = toNumber(record.price_usd);
+    const marketCap = toNumber(record.market_cap_usd);
+    const volume = toNumber(record.volume24);
     const change = changeForTimeframe(record, selectedTimeframe);
+    const symbol = String(record.symbol || "").toUpperCase();
 
     return {
-      id: record.id,
-      title: `${record.name} (${String(record.symbol || "").toUpperCase()})`,
-      subtitle: `Rank #${record.market_cap_rank || "n/a"} | Price ${compactCurrency(record.current_price)}`,
-      category: change >= 0 ? "Gainer" : "Decliner",
-      value: `${formatPercent(change)} ${selectedTimeframe} | Vol ${compactCurrency(record.total_volume)}`,
-      url: `https://www.coingecko.com/en/coins/${record.id}`,
-      updatedAt: record.last_updated || new Date().toISOString(),
-      symbol: String(record.symbol || "").toUpperCase(),
-      price: record.current_price,
-      marketCap: record.market_cap,
-      volume: record.total_volume,
-      rank: record.market_cap_rank,
+      id: String(record.id || symbol),
+      title: `${record.name} (${symbol})`,
+      subtitle: `Rank #${record.rank || "n/a"} | Price ${compactCurrency(price)}`,
+      category: (change || 0) >= 0 ? "Gainer" : "Decliner",
+      value: `${formatPercent(change)} ${selectedTimeframe} | Vol ${compactCurrency(volume)}`,
+      url: `https://www.coinlore.com/coin/${record.nameid || symbol.toLowerCase()}`,
+      updatedAt: new Date().toISOString(),
+      symbol,
+      price,
+      marketCap,
+      volume,
+      rank: toNumber(record.rank),
       timeframe: selectedTimeframe,
       priceChangePercentage: change,
-      marketCapDisplay: compactCurrency(record.market_cap),
-      volumeDisplay: compactCurrency(record.total_volume),
-      priceDisplay: compactCurrency(record.current_price),
-      volumeRankLabel: `${compactNumber(record.total_volume)} traded`
+      marketCapDisplay: compactCurrency(marketCap),
+      volumeDisplay: compactCurrency(volume),
+      priceDisplay: compactCurrency(price),
+      volumeRankLabel: `${compactNumber(volume)} traded`
     };
   });
 
   return {
     subject: `Crypto Market Monitor (${selectedTimeframe})`,
-    sourceName: "CoinGecko Public Markets API",
+    sourceName: "CoinLore Public Cryptocurrency API",
     sourceUrl,
     query,
     timeframe: selectedTimeframe,
