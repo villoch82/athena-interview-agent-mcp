@@ -1,8 +1,8 @@
-# Athena AI Interview Agent
+# Athena Crypto Market Monitor
 
-Starter MCP server and embedded widget for the timed Athena challenge.
+Athena AI Agent MCP server for comparing cryptocurrency assets by price movement, trading volume, market cap, and timeframe.
 
-Current practice topic: recent earthquakes from the public USGS Earthquake Catalog.
+The server retrieves live public market data from the CoinLore Public Cryptocurrency API and renders the results in an embedded interactive Athena widget.
 
 ## Run
 
@@ -17,18 +17,28 @@ The MCP endpoint defaults to:
 http://localhost:3000/mcp
 ```
 
-For Athena, expose it with a tunnel and use the public `/mcp` URL.
+Production MCP endpoint:
 
-```bash
-npm run tunnel
+```text
+https://athena-interview-agent-mcp.onrender.com/mcp
 ```
 
-If using localtunnel, the MCP URL will be the public tunnel URL with `/mcp` appended.
+For local Athena testing, expose the local server with a tunnel and use the public `/mcp` URL.
 
 ## Files
 
 - `src/server.js` - MCP server, tool registration, widget resource
-- `src/data-source.js` - public data fetch/normalization layer to adapt to the assigned topic
-- `src/data-source.template.js` - quick-start adapter skeleton for the real assigned topic
-- `src/widget.html` - embedded interactive widget
-- `CHALLENGE_RUNBOOK.md` - timed challenge checklist and deployment loop
+- `src/data-source.js` - CoinLore public market data fetch/normalization layer
+- `src/widget.html` - embedded interactive crypto comparison widget
+
+## Data Source
+
+- Source: CoinLore Public Cryptocurrency API
+- Endpoint: `https://api.coinlore.net/api/tickers/`
+- Authentication: none
+
+## Widget Interactions
+
+- Filter visible assets by symbol/name.
+- Sort by price movement, volume, market cap, rank, or asset name.
+- Click an asset card to expand source and update details.
