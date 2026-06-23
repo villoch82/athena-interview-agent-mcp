@@ -1,36 +1,53 @@
 import https from "node:https";
 
-const USGS_ENDPOINT = "https://earthquake.usgs.gov/fdsnws/event/1/query";
-const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const GLOBAL_TERMS = new Set(["world", "the world", "global", "globally", "worldwide", "earth"]);
-const TOPIC_ONLY_TERMS = new Set([
-  "earthquake",
-  "earthquakes",
-  "quake",
-  "quakes",
-  "seismic",
-  "seismic activity",
-  "earthquake activity",
-  "recent earthquakes"
+const COINGECKO_MARKETS_ENDPOINT = "https://api.coingecko.com/api/v3/coins/markets";
+const DEFAULT_ASSET_IDS = ["bitcoin", "ethereum", "solana", "ripple", "binancecoin", "dogecoin", "cardano", "tron"];
+const ASSET_ALIASES = new Map([
+  ["btc", "bitcoin"],
+  ["bitcoin", "bitcoin"],
+  ["eth", "ethereum"],
+  ["ethereum", "ethereum"],
+  ["sol", "solana"],
+  ["solana", "solana"],
+  ["xrp", "ripple"],
+  ["ripple", "ripple"],
+  ["bnb", "binancecoin"],
+  ["binance", "binancecoin"],
+  ["doge", "dogecoin"],
+  ["dogecoin", "dogecoin"],
+  ["ada", "cardano"],
+  ["cardano", "cardano"],
+  ["trx", "tron"],
+  ["tron", "tron"],
+  ["avax", "avalanche-2"],
+  ["avalanche", "avalanche-2"],
+  ["link", "chainlink"],
+  ["chainlink", "chainlink"],
+  ["dot", "polkadot"],
+  ["polkadot", "polkadot"],
+  ["matic", "polygon"],
+  ["polygon", "polygon"]
 ]);
+const TIMEFRAMES = new Set(["1h", "24h", "7d", "30d"]);
 
 async function fetchJson(url) {
   try {
     const response = await fetch(url, {
       headers: {
+        accept: "application/json",
         "User-Agent": "athena-interview-agent/0.1"
       }
     });
 
     if (!response.ok) {
-      throw new Error(`Request failed with ${response.status}`);
+      throw new Error(`CoinGecko request failed with ${response.status}`);
     }
 
     return response.json();
   } catch (error) {
     return new Promise((resolve, reject) => {
       https
-        .get(url, { headers: { "User-Agent": "athena-interview-agent/0.1" } }, (response) => {
+        .get(url, { headers: { accept: "application/json", "User-Agent": "athena-interview-agent/0.1" } }, (response) => {
           let body = "";
 
           response.setEncoding("utf8");
@@ -39,7 +56,7 @@ async function fetchJson(url) {
           });
           response.on("end", () => {
             if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-              reject(new Error(`Request failed with ${response.statusCode || "unknown status"}`));
+              reject(new Error(`CoinGecko request failed with ${response.statusCode || "unknown status"}`));
               return;
             }
 
@@ -50,119 +67,108 @@ async function fetchJson(url) {
             }
           });
         })
-        .on("error", () => {
-          reject(error);
-        });
+        .on("error", () => reject(error));
     });
   }
 }
 
-function toIsoDate(date) {
-  return date.toISOString().slice(0, 10);
+function compactCurrency(value) {
+  if (typeof value !== "number") return "n/a";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: value >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits: value >= 1 ? 2 : 6
+  }).format(value);
 }
 
-function formatMagnitude(value) {
-  return typeof value === "number" ? `M ${value.toFixed(1)}` : "Magnitude unknown";
+function compactNumber(value) {
+  if (typeof value !== "number") return "n/a";
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 2
+  }).format(value);
 }
 
-function classifyDepth(kilometers) {
-  if (typeof kilometers !== "number") return "Depth unknown";
-  if (kilometers < 70) return "Shallow";
-  if (kilometers < 300) return "Intermediate";
-  return "Deep";
+function formatPercent(value) {
+  if (typeof value !== "number") return "n/a";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
 }
 
-function currentYearStart() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+function normalizeTimeframe(timeframe = "", query = "") {
+  const raw = `${timeframe} ${query}`.toLowerCase();
+  if (/\b(1h|1 hour|hour|hourly)\b/.test(raw)) return "1h";
+  if (/\b(7d|7 day|week|weekly)\b/.test(raw)) return "7d";
+  if (/\b(30d|30 day|month|monthly)\b/.test(raw)) return "30d";
+  return "24h";
 }
 
-function extractMagnitude(queryText) {
-  const matches = queryText.match(/\b\d+(?:\.\d+)?\b/g) || [];
-  const magnitude = matches.map(Number).find((value) => value >= 0 && value <= 10);
-  return Number.isFinite(magnitude) ? magnitude : undefined;
+function extractAssetIds(query = "", assets = "") {
+  const raw = `${assets} ${query}`.toLowerCase();
+  const ids = [];
+
+  for (const [alias, id] of ASSET_ALIASES.entries()) {
+    if (new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(raw) && !ids.includes(id)) {
+      ids.push(id);
+    }
+  }
+
+  return ids.length ? ids.slice(0, 12) : DEFAULT_ASSET_IDS;
 }
 
-function cleanLocation(value) {
-  return value
-    .replace(/\b(render|using|with|and|show|the|widget|results?)\b.*$/i, "")
-    .replace(/[^\p{L}\p{N}\s'-]/gu, "")
-    .trim();
+function changeForTimeframe(record, timeframe) {
+  const key = `price_change_percentage_${timeframe}_in_currency`;
+  return typeof record[key] === "number" ? record[key] : record.price_change_percentage_24h;
 }
 
-function parseQueryIntent(query) {
-  const normalizedQuery = query.trim();
-  const lowerQuery = normalizedQuery.toLowerCase();
-  const asksForYear = /\b(this year|current year|year to date|ytd|2026)\b/.test(lowerQuery);
-  const magnitude = extractMagnitude(lowerQuery);
-  const inMatch = normalizedQuery.match(/\bin\s+([^,.!?]+)(?:[,.!?]|$)/i);
-  const possibleLocation = cleanLocation(inMatch?.[1] || "");
-  const locationFromIn = possibleLocation && !GLOBAL_TERMS.has(possibleLocation.toLowerCase()) ? possibleLocation : "";
-  const isTopicOnly = TOPIC_ONLY_TERMS.has(lowerQuery) || /^(show|find|get|list)?\s*(recent\s*)?(earthquakes?|quakes?|seismic activity)\s*$/i.test(normalizedQuery);
-  const isBroadGlobal =
-    !normalizedQuery ||
-    GLOBAL_TERMS.has(lowerQuery) ||
-    TOPIC_ONLY_TERMS.has(lowerQuery) ||
-    /\b(world|global|worldwide)\b/.test(lowerQuery);
-  const shouldTreatAsBroad = isBroadGlobal || isTopicOnly;
-  const locationQuery = locationFromIn || (!shouldTreatAsBroad && !asksForYear && magnitude === undefined ? normalizedQuery : "");
-
-  return {
-    normalizedQuery,
-    locationQuery,
-    minimumMagnitude: magnitude ?? (asksForYear || shouldTreatAsBroad ? 4.5 : 2.5),
-    startDate: asksForYear ? toIsoDate(currentYearStart()) : toIsoDate(new Date(Date.now() - ONE_WEEK_MS)),
-    subject: locationQuery
-      ? `USGS Earthquakes near ${locationQuery}`
-      : asksForYear
-        ? "Global USGS Earthquakes This Year"
-        : "Recent USGS Earthquakes"
-  };
-}
-
-export async function searchPublicData({ query = "", limit = 12 } = {}) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 12, 1), 50);
-  const intent = parseQueryIntent(query);
-  const queryLimit = intent.locationQuery ? Math.min(Math.max(safeLimit * 20, 100), 200) : Math.max(safeLimit * 3, safeLimit);
+export async function searchPublicData({ query = "", assets = "", timeframe = "24h", limit = 8 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 8, 1), 50);
+  const selectedTimeframe = normalizeTimeframe(timeframe, query);
+  const ids = extractAssetIds(query, assets);
   const params = new URLSearchParams({
-    format: "geojson",
-    starttime: intent.startDate,
-    orderby: "time",
-    limit: String(queryLimit),
-    minmagnitude: String(intent.minimumMagnitude)
+    vs_currency: "usd",
+    ids: ids.join(","),
+    order: "market_cap_desc",
+    per_page: String(Math.max(safeLimit, ids.length)),
+    page: "1",
+    sparkline: "false",
+    price_change_percentage: "1h,24h,7d,30d"
   });
+  const sourceUrl = `${COINGECKO_MARKETS_ENDPOINT}?${params.toString()}`;
+  const records = await fetchJson(sourceUrl);
 
-  const sourceUrl = `${USGS_ENDPOINT}?${params.toString()}`;
-  const payload = await fetchJson(sourceUrl);
-  const queryText = intent.locationQuery.toLowerCase();
-  const filteredFeatures = (payload.features || []).filter((feature) => {
-    if (!queryText) return true;
-    return String(feature.properties?.place || "").toLowerCase().includes(queryText);
-  });
-
-  const items = filteredFeatures.slice(0, safeLimit).map((feature) => {
-    const properties = feature.properties || {};
-    const coordinates = feature.geometry?.coordinates || [];
-    const depth = coordinates[2];
-    const place = properties.place || "Unknown location";
-    const time = properties.time ? new Date(properties.time).toISOString() : new Date().toISOString();
+  const items = records.slice(0, safeLimit).map((record) => {
+    const change = changeForTimeframe(record, selectedTimeframe);
 
     return {
-      id: String(feature.id || `${place}-${time}`),
-      title: `${formatMagnitude(properties.mag)} earthquake`,
-      subtitle: place,
-      category: classifyDepth(depth),
-      value: `${formatMagnitude(properties.mag)} | ${typeof depth === "number" ? `${depth.toFixed(1)} km deep` : "Depth unknown"}`,
-      url: properties.url || "https://earthquake.usgs.gov/earthquakes/search/",
-      updatedAt: time
+      id: record.id,
+      title: `${record.name} (${String(record.symbol || "").toUpperCase()})`,
+      subtitle: `Rank #${record.market_cap_rank || "n/a"} | Price ${compactCurrency(record.current_price)}`,
+      category: change >= 0 ? "Gainer" : "Decliner",
+      value: `${formatPercent(change)} ${selectedTimeframe} | Vol ${compactCurrency(record.total_volume)}`,
+      url: `https://www.coingecko.com/en/coins/${record.id}`,
+      updatedAt: record.last_updated || new Date().toISOString(),
+      symbol: String(record.symbol || "").toUpperCase(),
+      price: record.current_price,
+      marketCap: record.market_cap,
+      volume: record.total_volume,
+      rank: record.market_cap_rank,
+      timeframe: selectedTimeframe,
+      priceChangePercentage: change,
+      marketCapDisplay: compactCurrency(record.market_cap),
+      volumeDisplay: compactCurrency(record.total_volume),
+      priceDisplay: compactCurrency(record.current_price),
+      volumeRankLabel: `${compactNumber(record.total_volume)} traded`
     };
   });
 
   return {
-    subject: intent.subject,
-    sourceName: "USGS Earthquake Catalog",
+    subject: `Crypto Market Monitor (${selectedTimeframe})`,
+    sourceName: "CoinGecko Public Markets API",
     sourceUrl,
     query,
+    timeframe: selectedTimeframe,
     fetchedAt: new Date().toISOString(),
     count: items.length,
     items

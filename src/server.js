@@ -21,7 +21,18 @@ const itemSchema = z.object({
   category: z.string().optional(),
   value: z.string().optional(),
   url: z.string().optional(),
-  updatedAt: z.string().optional()
+  updatedAt: z.string().optional(),
+  symbol: z.string().optional(),
+  price: z.number().optional(),
+  marketCap: z.number().optional(),
+  volume: z.number().optional(),
+  rank: z.number().optional(),
+  timeframe: z.string().optional(),
+  priceChangePercentage: z.number().optional(),
+  marketCapDisplay: z.string().optional(),
+  volumeDisplay: z.string().optional(),
+  priceDisplay: z.string().optional(),
+  volumeRankLabel: z.string().optional()
 });
 
 const outputSchema = {
@@ -29,6 +40,7 @@ const outputSchema = {
   sourceName: z.string(),
   sourceUrl: z.string(),
   query: z.string(),
+  timeframe: z.string().optional(),
   fetchedAt: z.string(),
   count: z.number(),
   items: z.array(itemSchema)
@@ -55,7 +67,7 @@ function createServer() {
           mimeType: "text/html+skybridge",
           text: await loadWidgetHtml(),
           _meta: {
-            "openai/widgetDescription": "Renders public data records in a searchable, sortable interactive widget.",
+            "openai/widgetDescription": "Renders live cryptocurrency market data in an interactive comparison widget.",
             "openai/widgetPrefersBorder": true
           }
         }
@@ -66,10 +78,12 @@ function createServer() {
   server.registerTool(
     "search_public_data",
     {
-      title: "Search recent earthquakes",
-      description: "Retrieve recent real earthquake records from the public USGS Earthquake Catalog and render them in the embedded widget. Use this for earthquake, seismic activity, magnitude, and location questions.",
+      title: "Compare crypto markets",
+      description: "Retrieve real cryptocurrency market data from the public CoinGecko Markets API and render an interactive widget comparing price movement, trading volume, market cap, and timeframe.",
       inputSchema: {
-        query: z.string().optional().describe("Search term or filter supplied by the user."),
+        query: z.string().optional().describe("Natural language request, asset symbols, or comparison terms."),
+        assets: z.string().optional().describe("Comma-separated crypto symbols or names, such as BTC, ETH, SOL."),
+        timeframe: z.enum(["1h", "24h", "7d", "30d"]).optional().describe("Timeframe for price movement comparison."),
         limit: z.number().int().min(1).max(50).optional().describe("Maximum number of records to return.")
       },
       outputSchema,
@@ -81,12 +95,12 @@ function createServer() {
       _meta: {
         "openai/outputTemplate": WIDGET_URI,
         "openai/widgetAccessible": true,
-        "openai/toolInvocation/invoking": "Retrieving USGS earthquakes...",
-        "openai/toolInvocation/invoked": "USGS earthquakes loaded"
+        "openai/toolInvocation/invoking": "Retrieving crypto market data...",
+        "openai/toolInvocation/invoked": "Crypto market data loaded"
       }
     },
-    async ({ query = "", limit = 12 }) => {
-      const data = await searchPublicData({ query, limit });
+    async ({ query = "", assets = "", timeframe = "24h", limit = 8 }) => {
+      const data = await searchPublicData({ query, assets, timeframe, limit });
 
       return {
         structuredContent: data,
@@ -96,7 +110,7 @@ function createServer() {
         content: [
           {
             type: "text",
-            text: `Loaded ${data.count} ${data.count === 1 ? "earthquake" : "earthquakes"} from ${data.sourceName}. Use the widget to explore the results.`
+            text: `Loaded ${data.count} crypto assets from ${data.sourceName} for the ${data.timeframe || timeframe} timeframe. Use the widget to compare price movement, volume, and market cap.`
           }
         ]
       };
