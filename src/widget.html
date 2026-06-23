@@ -243,7 +243,10 @@
 
       function sortItems(a, b) {
         if (sortValue === "rank") return numericValue(a, "rank") - numericValue(b, "rank");
-        if (["priceChangePercentage", "volume", "marketCap"].includes(sortValue)) {
+        if (sortValue === "priceChangePercentage") {
+          return Math.abs(numericValue(b, "priceChangePercentage")) - Math.abs(numericValue(a, "priceChangePercentage"));
+        }
+        if (["volume", "marketCap"].includes(sortValue)) {
           return numericValue(b, sortValue) - numericValue(a, sortValue);
         }
         return normalizeText(a[sortValue]).localeCompare(normalizeText(b[sortValue]));
